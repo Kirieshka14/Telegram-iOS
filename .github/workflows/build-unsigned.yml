@@ -1,0 +1,82 @@
+name: Build Unsigned Telegram (Stage 1)
+
+on:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: macos-latest
+    timeout-minutes: 360
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+          fetch-depth: 1
+
+      - name: Show Xcode version
+        run: |
+          xcodebuild -version
+          ls /Applications | grep Xcode || true
+
+      - name: Create build configuration
+        run: |
+          mkdir -p "$HOME/telegram-configuration"
+          cat > "$HOME/telegram-configuration/configuration.json" << 'EOF'
+          {
+            "bundle_id": "com.myclient.tgfork",
+            "api_id": "17349",
+            "api_hash": "344583e45741c457fe1862106095a5eb",
+            "team_id": "TEAMID0000",
+            "app_center_id": "0",
+            "is_internal_build": "false",
+            "is_appstore_build": "false",
+            "appstore_id": "0",
+            "app_specific_url_scheme": "tgmyclient",
+            "premium_iap_product_id": "com.myclient.tgfork.premium.monthly",
+            "enable_siri": false,
+            "enable_icloud": false
+          }
+          EOF
+          echo "Configuration created:"
+          cat "$HOME/telegram-configuration/configuration.json"
+
+      - name: Prepare fake codesigning
+        run: |
+          cp -R build-system/fake-codesigning "$HOME/telegram-codesigning"
+          ls -la "$HOME/telegram-codesigning"
+
+      - name: Generate Xcode project
+        run: |
+          python3 build-system/Make/Make.py \
+            --overrideXcodeVersion \
+            --overrideBazelVersion \
+            --cacheDir="$HOME/telegram-bazel-cache" \
+            generateProject \
+            --configurationPath="$HOME/telegram-configuration/configuration.json" \
+            --codesigningInformationPath="$HOME/telegram-codesigning" \
+            --disableExtensions
+
+      - name: Build unsigned IPA
+        run: |
+          python3 build-system/Make/Make.py \
+            --overrideXcodeVersion \
+            --overrideBazelVersion \
+            --cacheDir="$HOME/telegram-bazel-cache" \
+            build \
+            --configurationPath="$HOME/telegram-configuration/configuration.json" \
+            --codesigningInformationPath="$HOME/telegram-codesigning" \
+            --buildNumber=1 \
+            --configuration=release_arm64
+
+      - name: List build artifacts
+        run: |
+          find build/artifacts -type f 2>/dev/null || echo "No artifacts folder found"
+
+      - name: Upload IPA artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: Telegram-unsigned-ipa
+          path: build/artifacts/*.ipa
+          retention-days: 14
+          if-no-files-found: warn
