@@ -54,18 +54,26 @@ jobs:
             --codesigningInformationPath=build-system/fake-codesigning \
             --configuration=release_arm64 \
             --buildNumber="$BUILD_NUMBER"
-          # collect ipa
+          # collect ipa (robust search instead of hardcoded wildcard path)
           OUTPUT_PATH="build/artifacts"
           rm -rf "$OUTPUT_PATH"
           mkdir -p "$OUTPUT_PATH"
-          for f in bazel-out/applebin_ios-ios_arm*-opt-ST-*/bin/Telegram/Telegram.ipa; do
-            cp "$f" $OUTPUT_PATH/
-          done
-          # collect dsym
+          echo "Searching for Telegram.ipa in bazel-out..."
+          find bazel-out -iname "*.ipa" 2>/dev/null || true
+          IPA_FILE=$(find bazel-out -type f -name "Telegram.ipa" 2>/dev/null | head -n 1)
+          if [ -z "$IPA_FILE" ]; then
+            echo "ERROR: Telegram.ipa not found anywhere under bazel-out"
+            exit 1
+          fi
+          echo "Found IPA at: $IPA_FILE"
+          cp "$IPA_FILE" "$OUTPUT_PATH/"
+          # collect dsym (robust search)
           mkdir -p build/DSYMs
-          for f in bazel-out/applebin_ios-ios_arm*-opt-ST-*/bin/Telegram/*.dSYM; do
-            cp -R "$f" build/DSYMs/
-          done
+          echo "Searching for .dSYM directories..."
+          find bazel-out -type d -iname "*.dSYM" 2>/dev/null || true
+          while IFS= read -r dsym; do
+            cp -R "$dsym" build/DSYMs/
+          done < <(find bazel-out -type d -iname "*.dSYM" 2>/dev/null)
           zip -r "./$OUTPUT_PATH/Telegram.DSYMs.zip" build/DSYMs 1>/dev/null
       - name: Create Release
         id: create_release
