@@ -33,9 +33,7 @@ jobs:
       - name: Build the App
         run: |
           set -x
-          # source code paths are included in the final binary, so we need to make them stable across builds
           SOURCE_DIR=/Users/Shared/telegram-ios
-          # use canonical bazel root
           BAZEL_USER_ROOT="/private/var/tmp/_bazel_containerhost"
           cd $SOURCE_DIR
           BUILD_NUMBER_OFFSET="$(cat build_number_offset)"
@@ -55,42 +53,56 @@ jobs:
             --configuration=release_arm64 \
             --buildNumber="$BUILD_NUMBER"
 
-          echo "=== DIAGNOSTICS: exploring output tree ==="
-          echo "--- Is bazel-out a symlink? ---"
-          ls -la bazel-out 2>&1 || echo "bazel-out symlink missing"
-          echo "--- Top-level contents of bazel-out (resolved) ---"
-          find bazel-out -maxdepth 1 2>&1 | head -50
-          echo "--- Any folder containing 'applebin' ---"
-          find bazel-out -maxdepth 1 -iname "*applebin*" 2>&1
-          echo "--- Any file/folder containing 'Telegram' up to depth 6 ---"
-          find bazel-out -maxdepth 6 -iname "*Telegram*" 2>&1 | head -100
-          echo "--- Any .ipa anywhere under bazel-out ---"
-          find bazel-out -iname "*.ipa" 2>&1
-          echo "--- Any .app bundle anywhere under bazel-out ---"
-          find bazel-out -maxdepth 8 -iname "*.app" -type d 2>&1 | head -50
-          echo "--- Any .xcarchive anywhere ---"
-          find bazel-out -iname "*.xcarchive" 2>&1
-          echo "--- Any .ipa anywhere in the whole source dir (not just bazel-out) ---"
-          find . -iname "*.ipa" 2>&1
-          echo "=== END DIAGNOSTICS ==="
+          echo "=== Locating build output (following symlinks with -L) ==="
+          find -L bazel-out -iname "*.ipa" 2>&1
+          echo "=== end listing ==="
 
-          # collect ipa (best-effort, won't fail the job if not found this time)
           OUTPUT_PATH="build/artifacts"
           rm -rf "$OUTPUT_PATH"
           mkdir -p "$OUTPUT_PATH"
-          IPA_FILE=$(find bazel-out . -type f -iname "*.ipa" 2>/dev/null | head -n 1)
-          if [ -n "$IPA_FILE" ]; then
-            echo "Found IPA at: $IPA_FILE"
-            cp "$IPA_FILE" "$OUTPUT_PATH/"
-          else
-            echo "No .ipa found this run — see DIAGNOSTICS block above, will fix based on that output."
+          IPA_FILE=$(find -L bazel-out -type f -iname "Telegram.ipa" 2>/dev/null | head -n 1)
+          if [ -z "$IPA_FILE" ]; then
+            echo "ERROR: Telegram.ipa still not found even with -L. Full tree dump:"
+            find -L bazel-out -maxdepth 6 2>&1 | head -300
+            exit 1
           fi
-      - name: Upload diagnostic artifact list
-        run: |
-          find /Users/Shared/telegram-ios/bazel-out -maxdepth 6 2>/dev/null > /tmp/bazel-out-tree.txt || echo "no bazel-out" > /tmp/bazel-out-tree.txt
-      - name: Upload tree as artifact
-        uses: actions/upload-artifact@v4
+          echo "Found IPA at: $IPA_FILE"
+          cp "$IPA_FILE" "$OUTPUT_PATH/"
+
+          mkdir -p build/DSYMs
+          while IFS= read -r dsym; do
+            cp -R "$dsym" build/DSYMs/
+          done < <(find -L bazel-out -type d -iname "*.dSYM" 2>/dev/null)
+          zip -r "./$OUTPUT_PATH/Telegram.DSYMs.zip" build/DSYMs 1>/dev/null
+      - name: Create Release
+        id: create_release
+        uses: actions/create-release@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
-          name: bazel-out-tree
-          path: /tmp/bazel-out-tree.txt
-          if-no-files-found: warn
+          tag_name: build-${{ env.BUILD_NUMBER }}
+          release_name: Telegram ${{ env.APP_VERSION }} (${{ env.BUILD_NUMBER }})
+          body: |
+            An unsigned build of Telegram for iOS ${{ env.APP_VERSION }} (${{ env.BUILD_NUMBER }})
+          draft: false
+          prerelease: false
+      - name: Upload Release IPA
+        id: upload-release-ipa
+        uses: actions/upload-release-asset@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          upload_url: ${{ steps.create_release.outputs.upload_url }}
+          asset_path: /Users/Shared/telegram-ios/build/artifacts/Telegram.ipa
+          asset_name: Telegram.ipa
+          asset_content_type: application/zip
+      - name: Upload Release DSYM
+        id: upload-release-dsym
+        uses: actions/upload-release-asset@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          upload_url: ${{ steps.create_release.outputs.upload_url }}
+          asset_path: /Users/Shared/telegram-ios/build/artifacts/Telegram.DSYMs.zip
+          asset_name: Telegram.DSYMs.zip
+          asset_content_type: application/zip
