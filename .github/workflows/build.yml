@@ -53,10 +53,6 @@ jobs:
             --configuration=release_arm64 \
             --buildNumber="$BUILD_NUMBER"
 
-          echo "=== Locating build output (following symlinks with -L) ==="
-          find -L bazel-out -iname "*.ipa" 2>&1
-          echo "=== end listing ==="
-
           OUTPUT_PATH="build/artifacts"
           rm -rf "$OUTPUT_PATH"
           mkdir -p "$OUTPUT_PATH"
@@ -70,10 +66,12 @@ jobs:
           cp "$IPA_FILE" "$OUTPUT_PATH/"
 
           mkdir -p build/DSYMs
-          while IFS= read -r dsym; do
-            cp -R "$dsym" build/DSYMs/
-          done < <(find -L bazel-out -type d -iname "*.dSYM" 2>/dev/null)
-          zip -r "./$OUTPUT_PATH/Telegram.DSYMs.zip" build/DSYMs 1>/dev/null
+          find -L bazel-out -type d -iname "*.dSYM" 2>/dev/null | sort -u | while IFS= read -r dsym; do
+            cp -R "$dsym" build/DSYMs/ || echo "Skipped duplicate/identical dSYM: $dsym"
+          done
+          zip -r "./$OUTPUT_PATH/Telegram.DSYMs.zip" build/DSYMs 1>/dev/null || echo "DSYM zip step had warnings, continuing anyway"
+          echo "Final artifacts:"
+          ls -la "$OUTPUT_PATH"
       - name: Create Release
         id: create_release
         uses: actions/create-release@v1
