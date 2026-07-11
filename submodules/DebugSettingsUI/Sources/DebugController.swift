@@ -122,6 +122,7 @@ private enum DebugControllerEntry: ItemListNodeEntry {
     case resetTranslationStates
     case hostInfo(PresentationTheme, String)
     case versionInfo(PresentationTheme)
+    case myClientPlaceholder(PresentationTheme)
     
     var section: ItemListSectionId {
         switch self {
@@ -146,6 +147,8 @@ private enum DebugControllerEntry: ItemListNodeEntry {
         case .disableVideoAspectScaling, .enableNetworkFramework, .enableNetworkExperiments:
             return DebugControllerSection.videoExperiments2.rawValue
         case .hostInfo, .versionInfo:
+            return DebugControllerSection.info.rawValue
+        case .myClientPlaceholder:
             return DebugControllerSection.info.rawValue
         }
     }
@@ -284,6 +287,8 @@ private enum DebugControllerEntry: ItemListNodeEntry {
             return 103
         case .versionInfo:
             return 104
+        case .myClientPlaceholder:
+            return 105
         }
     }
     
@@ -1193,7 +1198,7 @@ private enum DebugControllerEntry: ItemListNodeEntry {
                 }))
             })
         case .resetBiometricsData:
-            return ItemListActionItem(presentationData: presentationData, systemStyle: .glass, title: "Reset Biometrics Data", kind: .destructive, alignment: .natural, sectionId: self.section, style: .blocks, action: {
+            return ItemListActionItem(presentationData: presentationData, systemStyle: .glass, title: "Reset Biometrics Data", kind: .generic, alignment: .natural, sectionId: self.section, style: .blocks, action: {
                 let _ = updatePresentationPasscodeSettingsInteractively(accountManager: arguments.sharedContext.accountManager, { settings in
                     return settings.withUpdatedBiometricsDomainState(nil).withUpdatedShareBiometricsDomainState(nil)
                 }).start()
@@ -1533,6 +1538,10 @@ private enum DebugControllerEntry: ItemListNodeEntry {
             let bundleVersion = bundle.infoDictionary?["CFBundleShortVersionString"] ?? ""
             let bundleBuild = bundle.infoDictionary?[kCFBundleVersionKey as String] ?? ""
             return ItemListTextItem(presentationData: presentationData, text: .plain("\(bundleId)\n\(bundleVersion) (\(bundleBuild))"), sectionId: self.section)
+        case let .myClientPlaceholder(theme):
+            return ItemListDisclosureItem(presentationData: presentationData, systemStyle: .glass, title: "My Client", label: "", sectionId: self.section, style: .blocks, action: {
+                arguments.pushController(myClientPlaceholderController(sharedContext: arguments.sharedContext))
+            })
         }
     }
 }
@@ -1650,8 +1659,44 @@ private func debugControllerEntries(context: AccountContext?, sharedContext: Sha
         entries.append(.hostInfo(presentationData.theme, "Host: \(backupHostOverride)"))
     }
     entries.append(.versionInfo(presentationData.theme))
+    entries.append(.myClientPlaceholder(presentationData.theme))
     
     return entries
+}
+
+private enum MyClientPlaceholderEntry: ItemListNodeEntry {
+    case info
+
+    var section: ItemListSectionId {
+        return 0
+    }
+
+    var stableId: Int {
+        return 0
+    }
+
+    static func <(lhs: MyClientPlaceholderEntry, rhs: MyClientPlaceholderEntry) -> Bool {
+        return lhs.stableId < rhs.stableId
+    }
+
+    func item(presentationData: ItemListPresentationData, arguments: Any) -> ListViewItem {
+        switch self {
+        case .info:
+            return ItemListTextItem(presentationData: presentationData, text: .plain("Coming soon"), sectionId: self.section)
+        }
+    }
+}
+
+private func myClientPlaceholderController(sharedContext: SharedAccountContext) -> ViewController {
+    let presentationData = sharedContext.currentPresentationData.with { $0 }
+
+    let controllerState = ItemListControllerState(presentationData: ItemListPresentationData(presentationData), title: .text("My Client"), leftNavigationButton: nil, rightNavigationButton: nil, backNavigationButton: ItemListBackButton(title: presentationData.strings.Common_Back))
+    let listState = ItemListNodeState(presentationData: ItemListPresentationData(presentationData), entries: [MyClientPlaceholderEntry.info], style: .blocks)
+
+    let signal: Signal<(ItemListControllerState, (ItemListNodeState, Any)), NoError> = .single((controllerState, (listState, Void())))
+
+    let controller = ItemListController(sharedContext: sharedContext, state: signal)
+    return controller
 }
 
 public func debugController(sharedContext: SharedAccountContext, context: AccountContext?, modal: Bool = false) -> ViewController {
