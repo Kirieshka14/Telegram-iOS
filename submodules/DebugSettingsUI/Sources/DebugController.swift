@@ -1538,7 +1538,7 @@ private enum DebugControllerEntry: ItemListNodeEntry {
             let bundleVersion = bundle.infoDictionary?["CFBundleShortVersionString"] ?? ""
             let bundleBuild = bundle.infoDictionary?[kCFBundleVersionKey as String] ?? ""
             return ItemListTextItem(presentationData: presentationData, text: .plain("\(bundleId)\n\(bundleVersion) (\(bundleBuild))"), sectionId: self.section)
-        case let .myClientPlaceholder(theme):
+        case .myClientPlaceholder:
             return ItemListDisclosureItem(presentationData: presentationData, systemStyle: .glass, title: "My Client", label: "", sectionId: self.section, style: .blocks, action: {
                 arguments.pushController(myClientPlaceholderController(sharedContext: arguments.sharedContext))
             })
